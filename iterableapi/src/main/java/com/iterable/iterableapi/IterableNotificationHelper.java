@@ -11,6 +11,12 @@ import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
+import android.graphics.Rect;
+import android.graphics.RectF;
 import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
@@ -193,11 +199,14 @@ class IterableNotificationHelper {
                 // Download avatar image
                 Bitmap avatarBitmap = getBitmapFromURL(avatarUrl);
                 if (avatarBitmap != null) {
+                    // Convert avatar to circular shape
+                    Bitmap circularAvatarBitmap = getCircularBitmap(avatarBitmap);
+
                     // Create Person with avatar
                     Person sender = new Person.Builder()
                             .setName(title)
                             .setKey(title)
-                            .setIcon(IconCompat.createWithBitmap(avatarBitmap))
+                            .setIcon(IconCompat.createWithBitmap(circularAvatarBitmap))
                             .build();
                     // Create MessagingStyle with person
                     NotificationCompat.MessagingStyle messagingStyle = new NotificationCompat.MessagingStyle(sender)
@@ -494,6 +503,36 @@ class IterableNotificationHelper {
             }
 
             return notificationBody.isEmpty();
+        }
+
+        /**
+         * Converts a bitmap to a circular bitmap
+         *
+         * @param bitmap Original bitmap to convert
+         * @return Circular bitmap
+         */
+        private Bitmap getCircularBitmap(Bitmap bitmap) {
+            Bitmap output = Bitmap.createBitmap(bitmap.getWidth(),
+                    bitmap.getHeight(), Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(output);
+
+            final int color = 0xff424242;
+            final Paint paint = new Paint();
+            final Rect rect = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
+
+            paint.setAntiAlias(true);
+            canvas.drawARGB(0, 0, 0, 0);
+            paint.setColor(color);
+
+            // Draw a circle
+            canvas.drawCircle(bitmap.getWidth() / 2f, bitmap.getHeight() / 2f,
+                    bitmap.getWidth() / 2f, paint);
+
+            // Set the overlay mode to SRC_IN to keep only the part of the bitmap that's inside the circle
+            paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
+            canvas.drawBitmap(bitmap, rect, rect, paint);
+
+            return output;
         }
 
         /**
