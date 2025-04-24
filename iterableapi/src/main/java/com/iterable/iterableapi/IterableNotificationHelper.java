@@ -9,20 +9,35 @@ import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
+import android.graphics.Rect;
+import android.graphics.RectF;
 import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.service.notification.StatusBarNotification;
+import android.util.Log;
 
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.Person;
+import androidx.core.graphics.drawable.IconCompat;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.Map;
 
 class IterableNotificationHelper {
@@ -172,14 +187,50 @@ class IterableNotificationHelper {
                     .setSmallIcon(getIconId(context))
                     .setTicker(applicationName)
                     .setAutoCancel(true)
-                    .setContentTitle(title)
-                    .setPriority(NotificationCompat.PRIORITY_HIGH)
-                    .setContentText(notificationBody);
+                    .setPriority(NotificationCompat.PRIORITY_HIGH);
             if (Build.VERSION.SDK_INT >= 17) {
                 notificationBuilder.setShowWhen(true);
             }
             notificationBuilder.setImageUrl(pushImage);
-            notificationBuilder.setExpandedContent(notificationBody);
+
+            // Handle avatar if present
+            String avatarUrl = extras.getString("avatar");
+            if (avatarUrl != null && !avatarUrl.isEmpty()) {
+                // Download avatar image
+                Bitmap avatarBitmap = getBitmapFromURL(avatarUrl);
+                if (avatarBitmap != null) {
+                    // Convert avatar to circular shape
+                    Bitmap circularAvatarBitmap = getCircularBitmap(avatarBitmap);
+
+                    // Create Person with avatar
+                    Person sender = new Person.Builder()
+                            .setName(title)
+                            .setKey(title)
+                            .setIcon(IconCompat.createWithBitmap(circularAvatarBitmap))
+                            .build();
+                    // Create MessagingStyle with person
+                    NotificationCompat.MessagingStyle messagingStyle = new NotificationCompat.MessagingStyle(sender)
+                            .setConversationTitle(title);
+                    // Add message
+                    NotificationCompat.MessagingStyle.Message message =
+                            new NotificationCompat.MessagingStyle.Message(
+                                    notificationBody,
+                                    System.currentTimeMillis(),
+                                    sender);
+                    messagingStyle.addMessage(message);
+                    notificationBuilder.setStyle(messagingStyle);
+                } else {
+                    // Fallback to regular notification style if avatar download fails
+                    notificationBuilder.setContentTitle(title)
+                            .setContentText(notificationBody);
+                    notificationBuilder.setExpandedContent(notificationBody);
+                }
+            } else {
+                // No avatar - use default style
+                notificationBuilder.setContentTitle(title)
+                        .setContentText(notificationBody);
+              notificationBuilder.setExpandedContent(notificationBody);
+            }
 
             // The notification doesn't cancel properly if requestCode is negative
             notificationBuilder.requestCode = Math.abs((int) System.currentTimeMillis());
@@ -452,6 +503,56 @@ class IterableNotificationHelper {
             }
 
             return notificationBody.isEmpty();
+        }
+
+        /**
+         * Converts a bitmap to a circular bitmap
+         *
+         * @param bitmap Original bitmap to convert
+         * @return Circular bitmap
+         */
+        private Bitmap getCircularBitmap(Bitmap bitmap) {
+            Bitmap output = Bitmap.createBitmap(bitmap.getWidth(),
+                    bitmap.getHeight(), Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(output);
+
+            final int color = 0xff424242;
+            final Paint paint = new Paint();
+            final Rect rect = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
+
+            paint.setAntiAlias(true);
+            canvas.drawARGB(0, 0, 0, 0);
+            paint.setColor(color);
+
+            // Draw a circle
+            canvas.drawCircle(bitmap.getWidth() / 2f, bitmap.getHeight() / 2f,
+                    bitmap.getWidth() / 2f, paint);
+
+            // Set the overlay mode to SRC_IN to keep only the part of the bitmap that's inside the circle
+            paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
+            canvas.drawBitmap(bitmap, rect, rect, paint);
+
+            return output;
+        }
+
+        /**
+         * Downloads an image from a URL and converts it to a Bitmap
+         *
+         * @param urlString URL of the image to download
+         * @return Bitmap of the downloaded image or null if download failed
+         */
+        private Bitmap getBitmapFromURL(String urlString) {
+            try {
+                URL url = new URL(urlString);
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setDoInput(true);
+                connection.connect();
+                InputStream input = connection.getInputStream();
+                return BitmapFactory.decodeStream(input);
+            } catch (IOException e) {
+                IterableLogger.e(IterableNotificationBuilder.TAG, "Error downloading avatar image", e);
+                return null;
+            }
         }
     }
 

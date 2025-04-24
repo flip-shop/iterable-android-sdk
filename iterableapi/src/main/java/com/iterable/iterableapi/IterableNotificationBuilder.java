@@ -27,6 +27,7 @@ public class IterableNotificationBuilder extends NotificationCompat.Builder {
     private String expandedContent;
     int requestCode;
     IterableNotificationData iterableNotificationData;
+    private NotificationCompat.Style customStyle = null;
 
     /**
      * Creates a custom Notification builder
@@ -62,6 +63,25 @@ public class IterableNotificationBuilder extends NotificationCompat.Builder {
     public boolean isGhostPush() {
         return isGhostPush;
     }
+    
+    /**
+     * Override setStyle to track if a custom style has been set
+     * @param style The notification style
+     * @return This object for method chaining
+     */
+    @Override
+    public NotificationCompat.Builder setStyle(NotificationCompat.Style style) {
+        customStyle = style;
+        return super.setStyle(style);
+    }
+    
+    /**
+     * Get the custom style that was set
+     * @return The custom notification style or null if none was set
+     */
+    public NotificationCompat.Style getStyle() {
+        return customStyle;
+    }
 
     /**
      * Combine all of the options that have been set and return a new {@link Notification}
@@ -70,6 +90,13 @@ public class IterableNotificationBuilder extends NotificationCompat.Builder {
      */
     public Notification build() {
         NotificationCompat.Style style = null;
+        
+        // Check if a style is already set (e.g., MessagingStyle for avatars)
+        NotificationCompat.Style existingStyle = getStyle();
+        if (existingStyle != null) {
+            // Keep the existing style (e.g., MessagingStyle)
+            return super.build();
+        }
 
         if (this.imageUrl != null) {
             try {
