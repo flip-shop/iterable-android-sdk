@@ -21,6 +21,7 @@ import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Parcelable;
 import android.provider.Settings;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
@@ -208,17 +209,53 @@ class IterableNotificationHelper {
                             .setKey(title)
                             .setIcon(IconCompat.createWithBitmap(circularAvatarBitmap))
                             .build();
-                    // Create MessagingStyle with person
-                    NotificationCompat.MessagingStyle messagingStyle = new NotificationCompat.MessagingStyle(sender)
-                            .setConversationTitle(title);
-                    // Add message
-                    NotificationCompat.MessagingStyle.Message message =
-                            new NotificationCompat.MessagingStyle.Message(
-                                    notificationBody,
-                                    System.currentTimeMillis(),
-                                    sender);
-                    messagingStyle.addMessage(message);
-                    notificationBuilder.setStyle(messagingStyle);
+                  NotificationCompat.MessagingStyle messagingStyle = new NotificationCompat.MessagingStyle(sender)
+                    .setConversationTitle(title);
+
+                  // Get thread ID from extras
+                  String threadId = extras.getString("channelId");
+
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && threadId != null && !threadId.isEmpty()) {
+                    NotificationManager notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+                    StatusBarNotification[] activeNotifications = notificationManager.getActiveNotifications();
+                    for (StatusBarNotification sbn : activeNotifications) {
+                      Notification n = sbn.getNotification();
+                      if (threadId.equals(n.getGroup()) && n.extras.containsKey(Notification.EXTRA_MESSAGES)) {
+                        Parcelable[] msgs = n.extras.getParcelableArray(Notification.EXTRA_MESSAGES);
+                        if (msgs != null) {
+                          for (Parcelable p : msgs) {
+                            if (p instanceof Bundle) {
+                              Bundle msgBundle = (Bundle) p;
+                              CharSequence text = msgBundle.getCharSequence("text");
+                              long timestamp = msgBundle.getLong("time");
+                              CharSequence name = msgBundle.getCharSequence("sender");
+
+                              if (text != null) {
+                                Person historicSender = new Person.Builder()
+                                  .setName(name)
+                                  .build();
+
+                                messagingStyle.addMessage(new NotificationCompat.MessagingStyle.Message(
+                                  text,
+                                  timestamp,
+                                  historicSender));
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+
+                  NotificationCompat.MessagingStyle.Message message =
+                    new NotificationCompat.MessagingStyle.Message(
+                      notificationBody,
+                      System.currentTimeMillis(),
+                      sender);
+                  messagingStyle.addMessage(message);
+
+                  notificationBuilder.setStyle(messagingStyle);
+
                 } else {
                     // Fallback to regular notification style if avatar download fails
                     notificationBuilder.setContentTitle(title)
@@ -229,16 +266,23 @@ class IterableNotificationHelper {
                 // No avatar - use default style
                 notificationBuilder.setContentTitle(title)
                         .setContentText(notificationBody);
-              notificationBuilder.setExpandedContent(notificationBody);
+                notificationBuilder.setExpandedContent(notificationBody);
             }
 
-            // The notification doesn't cancel properly if requestCode is negative
-            notificationBuilder.requestCode = Math.abs((int) System.currentTimeMillis());
-            IterableLogger.d(IterableNotificationBuilder.TAG, "Request code = " + notificationBuilder.requestCode);
-            if (messageId != null) {
-                notificationBuilder.requestCode = Math.abs(messageId.hashCode());
-                IterableLogger.d(IterableNotificationBuilder.TAG, "Request code = " + notificationBuilder.requestCode);
+            String threadId = extras.getString("channelId");
+
+            // Set thread ID if it exists
+            if (threadId != null && !threadId.isEmpty()) {
+                notificationBuilder.setGroup(threadId);
+                notificationBuilder.setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY);
+                notificationBuilder.requestCode = threadId.hashCode();
+            }else if (messageId != null) {
+              notificationBuilder.requestCode = Math.abs(messageId.hashCode());
+            } else {
+              notificationBuilder.requestCode = (int) System.currentTimeMillis(); // fallback
             }
+
+            IterableLogger.d(IterableNotificationBuilder.TAG, "Request code = " + notificationBuilder.requestCode);
 
             //Create an intent for TrampolineActivity instead of BroadcastReceiver
             Intent trampolineActivityIntent = new Intent(IterableConstants.ACTION_PUSH_ACTION);
